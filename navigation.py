@@ -1,8 +1,13 @@
-import time, cv2, math, constants
+import time, cv2, math, map_constants
 from time import sleep
 from threading import Thread
 from djitellopy import Tello
+from capturador import Capturador
+from estimador import Estimador
+from constants import isSingleTest
+import threading
 import numpy as np
+
 font=cv2.FONT_ITALIC
 drone = Tello()
 drone.connect()  
@@ -10,6 +15,10 @@ drone.streamon()
 drone.set_speed(10)
 keepRecording = True
 frame_read = drone.get_frame_read()
+
+def dist2D(a, b):
+    distance = math.sqrt((a[0]-b[0])**2+(a[1]-b[1])**2) # in meters
+    return distance
 
 def videoRecorder():
     # create a VideoWrite object, recoring to ./video.avi
@@ -22,12 +31,8 @@ def videoRecorder():
 
     video.release()
 
-def showVideo():
-    img = frame_read.frame
-    cv2.imshow("Drone video", img)
-
 def drawMap(basis_coordinates, arena_dimensions):
-    img = np.zeros((constants.image_size[0],constants.image_size[1],3), np.uint8)
+    img = np.zeros((map_constants.image_size[0],map_constants.image_size[1],3), np.uint8)
 
     img = cv2.rectangle(img,(-10,-10),(10,10),(0,255,0),3)
 
@@ -49,15 +54,15 @@ def drawMap(basis_coordinates, arena_dimensions):
     cv2.destroyWindow('map')
 
 def convertFromRealToImage(coord):
-    x = int((coord[0]/constants.arena_dimensions[0])*constants.image_size[0])
-    y = int((coord[1]/constants.arena_dimensions[1])*constants.image_size[1])
+    x = int((coord[0]/map_constants.arena_dimensions[0])*map_constants.image_size[0])
+    y = int((coord[1]/map_constants.arena_dimensions[1])*map_constants.image_size[1])
     y = 512 - y
 
     return x, y
 
 def goTo(drone, nextPos, actualPos,actualAng):
-    distance = math.sqrt((nextPos[0]-actualPos[0])**2+(nextPos[1]-actualPos[1])**2) # in meters
-    print('distance is ' + str(distance))
+    distance = Dist2D((nextPos, actualPos)) # in meters
+    # print('distance is ' + str(distance))
 
     if nextPos[0] == actualPos[0]:
         angle = 270
@@ -69,9 +74,9 @@ def goTo(drone, nextPos, actualPos,actualAng):
         angle = 180 - math.fabs(angle)
     resp = angle - actualAng
 
-    print('resp is ' + str(resp))
-    print('angle is ' + str(angle))
-    print('actualAng is ' + str(actualAng))
+    # print('resp is ' + str(resp))
+    # print('angle is ' + str(angle))
+    # print('actualAng is ' + str(actualAng))
 
     # if resp < 0:
     #     drone.rotate_clockwise(int(-resp))
@@ -82,53 +87,87 @@ def goTo(drone, nextPos, actualPos,actualAng):
 
     return angle
 
-def mission(drone):
-    actualAng = 90
-    actualPos = [0,0,0,0] # x,y,z,theta
-    searchHeight = 1.5
-    i = 0
+def goToSteps(drone, nextPos, actualPos, actualAng, steps, position):
+    distance = Dist2D((nextPos, actualPos)) # in meters
+    for i in steps:
+        print('Position in ' ,i, 'step:', position)
+        drone.move_forward(int(distance*100/steps))
 
-    for basis in constants.basis_coordinates:
-        i = i + 1
-        nextPos = [basis[0],basis[1],searchHeight,0]
+def mission(drone, steps, position):
+    end_mission = True
+    while(end_mission):
 
-        print('going from {},{} to {},{}'.format(actualPos[0],actualPos[1],nextPos[0],nextPos[1]))
-        actualAng = goTo(drone, nextPos, actualPos, actualAng)
-
-
-        drone.land()
-        sleep(2)
-        return
-        actualPos = nextPos
-
+        actualAng = 90
+        actualPos = [0,0,0,0] # x,y,z,theta
+        searchHeight = 1.5
+        i = 0
 
         drone.takeoff()
         drone.move_up(50)
 
-    nextPos = [0,0,searchHeight,0]
-    actualAng = goTo(drone,nextPos,actualPos,actualAng)
+        for basis in map_constants.basis_coordinates:
+            i = i + 1
+            nextBasis = [basis[0],basis[1],searchHeight,0]
+
+            print('going from {},{} to {},{}'.format(actualPos[0],actualPos[1],nextBasis[0],nextBasis[1]))
+            # actualAng = goTo(drone, nextBasis, actualPos, actualAng)
+            actualAng = goToSteps(drone, nextBasis, actualPos, actualAng, steps, position)
+
+
+            drone.land()
+            sleep(2)
+
+            return
+            actualPos = nextBasis
+
+
+            drone.takeoff()
+            drone.move_up(50)
+
+        nextPos = [0,0,searchHeight,0]
+        actualAng = goTo(drone,nextBasis,actualPos,actualAng)
    
-    drone.land()
+        drone.land()
+        end_mission = False
+
+def getPosition(capturador, estimador, position, currentHeight):
+    while(1):
+        startTime = time.time()
+        old_position = position
+
+        # frame_read.frame = capturador.getFrame()
+        result, position = estimador.match(frame_read.frame, currentHeight)
+        endTime = time.time()
+
+        if(dist2D(position, old_position) >= 0.05):
+            position = old_position
+            print('The point is too far from the old point.')
+
+        print('FPS: ', 1/(endTime-startTime))
+        print('Position:', position)
+
+def showVideo():
+    while(1):
+        img = frame_read.frame
+        cv2.imshow("Drone video", img)
 
 def main():
+    currentHeight = 1.28
+    steps = 5
+    position = [0,0]
+    estimador = Estimador()
+    capturador = Capturador()
+    # drawMap(map_constants.basis_coordinates, map_constants.arena_dimensions)
     
-    # drawMap(constants.basis_coordinates, constants.arena_dimensions)
-    
-
-    recorder = Thread(target=videoRecorder)
-
+    recorder = threading.Thread(target=videoRecorder)
     recorder.start()
+    # video = threading.Thread(target=showVideo, daemon=True)
+    # video.start()
 
-    video = Thread(target=showVideo)
+    vision = threading.Thread(target=getPosition, args=(capturador, estimador, position, currentHeight,), daemon=True)
+    vision.start()
 
-    video.start()
-
-
-    drone.takeoff()
-    drone.move_up(50)
-    sleep(5)
-    drone.land()
-    # mission(drone)
+    mission(drone, steps, position)
 
     keepRecording = False
     recorder.join()
