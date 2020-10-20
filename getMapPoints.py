@@ -6,7 +6,7 @@ def click_event(event, x, y, flags, params):
   
     if event == cv2.EVENT_LBUTTONDOWN: 
   
-        print('[',x,',',y,']') 
+        print('[',y,',',x,']') 
   
         font = cv2.FONT_HERSHEY_SIMPLEX 
         cv2.putText(img, str(x) + ',' +
@@ -31,12 +31,11 @@ def click_event(event, x, y, flags, params):
 if __name__=="__main__": 
   
     img = cv2.imread(templateImage, 1) 
-    # img = cv2.resize(img, (800,800))
+  
     cv2.imshow('image', img) 
   
     cv2.setMouseCallback('image', click_event) 
   
-    while(cv2.waitKey(1) & 0xFF != ord('q')):
-        exit = 1 
+    cv2.waitKey(0) 
   
     cv2.destroyAllWindows() 

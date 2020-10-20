@@ -10,25 +10,40 @@ if __name__ == '__main__':
 
 	estimador = Estimador()
 	currentHeight = 1.28
+	numberOfFrames = 0
+	Found = 0
 
 	if(isSingleTest):
 		estimador.testSingleImage()
 		exit()
 
-	capturador = Capturador()
+	position = np.float32([208, 289]).reshape(-1,1,2)
+	position = estimador.transformPoint(position)
+	print(position)
 
-	while(capturador.frameExists()):
-		startTime = time.time()
-		frame = capturador.getFrame()
-		result, position = estimador.match(frame, currentHeight)
+	# capturador = Capturador()
 
-		cv2.imshow('Matching',result)
-		endTime = time.time()
-		print('FPS: ', 1/(endTime-startTime))
-		print('Position:', position)
-		if cv2.waitKey(1) & 0xFF == ord('q'):
-			break
+	# while(capturador.frameExists()):
+	# 	startTime = time.time()
+	# 	frame = capturador.getFrame()
+	# 	result, position = estimador.match(frame, currentHeight)
 
-	cv2.destroyAllWindows()
-	capturador.releaseCapture()
-	exit()
+	# 	cv2.imshow('Matching',result)
+	# 	endTime = time.time()
+	# 	# print('FPS: ', 1/(endTime-startTime))
+	# 	print('Position:', position)
+
+	# 	numberOfFrames += 1
+	# 	if isinstance(position, type(None)):
+	# 		Found += 1
+
+	# 	if cv2.waitKey(1) & 0xFF == ord('q'):
+	# 		break
+
+	# cv2.destroyAllWindows()
+	# capturador.releaseCapture()
+
+	# print('total amount of frames:', numberOfFrames)
+	# print('times position was found:', Found)
+
+	# exit()

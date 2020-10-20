@@ -5,8 +5,8 @@ from constants import inputType, videoFile
 from enums import ImageInput
 
 def noDrone():
-	print('Did not implement drone feature yet. Exiting...')
-	# exit()
+	printf("Did not implement drone feature yet. Exiting...")
+	exit()
 
 class Capturador:
 	def __init__(self):

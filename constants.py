@@ -6,16 +6,15 @@ from enums import ImageInput
 isSingleTest = False
 
 # CAPTURADOR CONSTANTS
-# inputType = ImageInput.VIDEO
-inputType = ImageInput.DRONE_CAMERA
+inputType = ImageInput.VIDEO
 videoFile = 'imagensTeste/teste4.mp4'
 
 # ESTIMADOR CONSTANTS
-templateImage = 'imagensTeste/25.jpg'
+templateImage = 'imagensTeste/experimento2Referencial25.jpg'
 singleImageTest = 'golden.jpeg'
-mapTemplatePoints = np.float32([[261,184], [351, 595], [244, 702]]).reshape(-1,1,2)
-mapRealPoints = np.float32([[0,0], [112, -30], [150, 0]]).reshape(-1,1,2)
+mapTemplatePoints = np.float32([[ 182 , 574 ],[ 73 , 440 ], [ 518 , 200 ], [ 871 , 528 ], [ 962 , 290 ]]).reshape(-1,1,2)
+mapRealPoints = np.float32([[0,0], [-27,30], [80,80], [150,0], [177, 57]]).reshape(-1,1,2)
 
 # SCENE MATCHING CONSTANTS
 sceneMatchingAlgorithm = 'SIFT'
-minMatchCount = 5
+minMatchCount = 8
