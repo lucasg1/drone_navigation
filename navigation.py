@@ -9,6 +9,7 @@ from mapUtil import drawMap, convertFromRealToImage
 import threading
 import numpy as np
 
+time_LastValidPosition = time.time()
 actualAng = 0
 font=cv2.FONT_ITALIC
 drone = Tello()
@@ -17,8 +18,10 @@ drone.streamon()
 drone.set_speed(10)
 keepRecording = True
 frame_read = drone.get_frame_read()
+stopCode = False
 
 position = np.float32([0,0]).reshape(-1,1,2)
+notNonePosition = np.float32([0,0]).reshape(-1,1,2)
 
 def videoRecorder():
     # create a VideoWrite object, recoring to ./video.avi
@@ -36,40 +39,9 @@ def showVideo():
         img = frame_read.frame
         cv2.imshow("Drone video", img)
 
-def goTo(drone, nextPos, actualPos,actualAng):
-    distance = dist2D(nextPos, actualPos) # in meters
-    # print('distance is ' + str(distance))
+def checkOrientationCornerCases(actualPos, nextBasis, targetAngOriginal):
+    targetAng = 0
 
-    if nextPos[0] == actualPos[0]:
-        angle = 270
-    else:
-        tangent = (nextPos[1]-actualPos[1])/(nextPos[0]-actualPos[0]) # rotate clockwise by ArcTangent(tangent)
-        angle = math.degrees(math.atan(tangent))
-    
-    if angle < 0:
-        angle = 180 - math.fabs(angle)
-    resp = angle - actualAng
-
-    # print('resp is ' + str(resp))
-    # print('angle is ' + str(angle))
-    # print('actualAng is ' + str(actualAng))
-
-    # if resp < 0:
-    #     drone.rotate_clockwise(int(-resp))
-    # else:
-    #     drone.rotate_counter_clockwise(int(resp))
-
-    drone.move_forward(int(distance*100)) # in cm
-
-    return angle
-
-def goToSteps(drone, nextBasis, actualPos, steps):
-    global actualAng
-    distance = math.sqrt((nextBasis[0]-actualPos[0])**2+(nextBasis[1]-actualPos[1])**2) # distance from actualPos to nextBasis
-
-    tangent = (nextBasis[1]-actualPos[1])/(nextBasis[0]-actualPos[0])
-    targetAng = math.degrees(math.atan(tangent))
-        
     if nextBasis[1]-actualPos[1] == 0 and nextBasis[0] > actualPos[0]:
         targetAng = 0
     elif nextBasis[1]-actualPos[1] == 0 and nextBasis[0] < actualPos[0]:
@@ -78,14 +50,40 @@ def goToSteps(drone, nextBasis, actualPos, steps):
         targetAng = 90
     elif nextBasis[0]-actualPos[0] == 0 and nextBasis[1] < actualPos[1]:
         targetAng = -90
+    else:
+        return targetAngOriginal
 
-
-    angleDif = targetAng - actualAng
+def logAngles(actualPos, nextBasis, angleDif, targetAng, actualAng):
     print('actualPos: ',actualPos)
     print('nextBasis: ',nextBasis)
     print('angle dif: ', angleDif)
     print('target angle: ', targetAng)
     print('actual angle: ', actualAng)
+
+def calcAveragePositions(array):
+    xSum = 0
+    ySum = 0
+    for pos in array:
+        xSum = xSum+pos[0][0][0]
+        ySum = ySum+pos[0][0][1]
+
+    xAverage = xSum/len(array)
+    yAverage = ySum/len(array)
+
+    return [xAverage, yAverage]
+
+def goToSteps(drone, nextBasis, actualPos, steps):
+    global actualAng
+    distance = math.sqrt((nextBasis[0]-actualPos[0])**2+(nextBasis[1]-actualPos[1])**2) # distance from actualPos to nextBasis
+
+    tangent = (nextBasis[1]-actualPos[1])/(nextBasis[0]-actualPos[0])
+    targetAng = math.degrees(math.atan(tangent))
+    
+    targetAng = checkOrientationCornerCases(actualPos, nextBasis, targetAng)
+
+    angleDif = targetAng - actualAng
+    
+    logAngles(actualPos, nextBasis, angleDif, targetAng, actualAng)
 
     if angleDif >= 0:
         drone.rotate_counter_clockwise(int(angleDif))
@@ -96,8 +94,19 @@ def goToSteps(drone, nextBasis, actualPos, steps):
     actualAng_radians = math.radians(actualAng)
 
     for j in range(0,steps):
+        if(stopCode == True): # check if someone is stopping the code
+            return
+
         drone.move_forward(int(distance*100/steps))
-        sleep(2)
+
+        beginObtainingPositions = time.time()
+        estimatePositionArray = []
+        estimatePositionArray.append(position)
+        while(time.time()-beginObtainingPositions <= 1):
+            if(estimatePositionArray[len(estimatePositionArray)-1][0][0][0] != position[0][0][0] and estimatePositionArray[len(estimatePositionArray)-1][0][0][1] != position[0][0][1]):
+                estimatePositionArray.append(position)
+                print('Estimated position: ', calcAveragePositions(estimatePositionArray))
+
         i = j + 1
         print('Position in ' ,i, 'step:', position)
 
@@ -105,8 +114,14 @@ def goToSteps(drone, nextBasis, actualPos, steps):
         # deltaX = int(actualPos[0]+((i*distance*100)/steps)*math.cos(actualAng) - position[0][0][0])
         # deltaY = int(actualPos[0]+((i*distance*100)/steps)*math.sin(actualAng) - position[0][0][0])
 
-        xPos_in_ith_step = actualPos[0]+((i*distance*100)/steps)*math.cos(actualAng_radians)
-        yPos_in_ith_step = actualPos[1]+((i*distance*100)/steps)*math.sin(actualAng_radians)
+        
+        print('actualPos: ', actualPos)
+        print('distance: ', distance*100)
+        print('cos: ', math.cos(actualAng_radians))
+        print('sin: ', math.sin(actualAng_radians))
+        xPos_in_ith_step = actualPos[0]*100+((i*distance*100)/steps)*math.cos(actualAng_radians)
+        yPos_in_ith_step = actualPos[1]*100+((i*distance*100)/steps)*math.sin(actualAng_radians)
+        print('The drone should be moving to: (', xPos_in_ith_step, ', ', yPos_in_ith_step, ')')
 
         # vetor_actualPos = np.array([actualPos[0],actualPos[1]])
         # vetor_nextBasis = np.array([nextBasis[0],nextBasis[1]])
@@ -116,11 +131,12 @@ def goToSteps(drone, nextBasis, actualPos, steps):
 
         small_to_original = np.float32([[math.cos(actualAng_radians), -math.sin(actualAng_radians), xPos_in_ith_step],[math.sin(actualAng_radians),math.cos(actualAng_radians),yPos_in_ith_step],[0,0,1]])
         transformation = np.linalg.inv(small_to_original)
-        # transformation = np.float32([[math.cos(actualAng_radians), math.sin(actualAng_radians), ],[-math.sin(actualAng_radians),math.cos(actualAng_radians),0],[0,0,1]])
         posArray = np.float32([position[0][0][0],position[0][0][1],1])
         position_in_new_axis = np.matmul(transformation,posArray)
+        print('small_to_original: ', small_to_original)
 
-
+        print('transformation: ', transformation)
+        print('position in new axis: ', position_in_new_axis)
 
         if(int(position_in_new_axis[0]) < -19):
             drone.move_forward(abs(int(position_in_new_axis[0])))
@@ -133,36 +149,6 @@ def goToSteps(drone, nextBasis, actualPos, steps):
 
         elif(int(position_in_new_axis[1]) > 19):
             drone.move_left(abs(int(position_in_new_axis[1])))
-def test(drone):
-    actualAng = 0
-    nextBasis = [0.8,0.8]
-    actualPos = [0.0,0.0]
-
-    distance = math.sqrt((nextBasis[0]-actualPos[0])**2+(nextBasis[1]-actualPos[1])**2) # distance from actualPos to nextBasis
-    tangent = (nextBasis[1]-actualPos[1])/(nextBasis[0]-actualPos[0])
-    targetAngle = math.degrees(math.atan(tangent))
-
-    if nextBasis[1]-actualPos[1] == 0 and nextBasis[0] > actualPos[0]:
-        targetAng = 0
-    elif nextBasis[1]-actualPos[1] == 0 and nextBasis[0] < actualPos[0]:
-        targetAng = 180
-    elif nextBasis[0]-actualPos[0] == 0 and nextBasis[1] > actualPos[1]:
-        targetAng = 90
-    elif nextBasis[0]-actualPos[0] == 0 and nextBasis[1] < actualPos[1]:
-        targetAng = -90
-
-    angleDif = targetAng - actualAng
-    print('angle dif: ', angleDif)
-    print('target angle: ', targetAng)
-    print('actual angle: ', actualAng)
-
-    if angleDif >= 0:
-        drone.rotate_counter_clockwise(int(angleDif))
-    else:
-        drone.rotate_clockwise(int(-angleDif))
-
-    actualAng = targetAng
-
 
 def mission(drone, steps):
     end_mission = True
@@ -179,7 +165,6 @@ def mission(drone, steps):
         nextBasis = [basis[0],basis[1],searchHeight,0]
 
         print('going from {},{} to {},{}'.format(actualPos[0],actualPos[1],nextBasis[0],nextBasis[1]))
-        # actualAng = goTo(drone, nextBasis, actualPos, actualAng)
         goToSteps(drone, nextBasis, actualPos, steps)
 
         drone.land()
@@ -188,20 +173,37 @@ def mission(drone, steps):
         actualPos = nextBasis
 
 def getPosition(capturador, estimador, currentHeight, result):
-    while(1):
-        global position
-        startTime = time.time()
-        old_position = position
+    printTimer = time.time()
+
+    while(not stopCode):
+        global position, notNonePosition, time_LastValidPosition
+
 
         # frame_read.frame = capturador.getFrame()
-        result, position = estimador.match(frame_read.frame, currentHeight)
-        endTime = time.time()
+        result, positionFromVision = estimador.match(frame_read.frame, currentHeight)
 
-        if(isinstance(position, type(None))):
+        if(not (isinstance(positionFromVision, type(None)) or math.sqrt((position[0][0][0]-positionFromVision[0][0][0])**2+(position[0][0][1]-positionFromVision[0][0][1])**2) >= 50)):
+            position = positionFromVision
+            time_LastValidPosition = time.time()
+
+        if(not (isinstance(positionFromVision, type(None)))):
+            notNonePosition = positionFromVision
+            time_LastValidPosition = time.time()
+
+        timeSinceLastValidPosition = time.time() - time_LastValidPosition
+
+        if(timeSinceLastValidPosition > 4):
+            position = notNonePosition
+            time_LastValidPosition = time.time()
+
+        if(time.time()-printTimer > 1):
+            printTimer = time.time()
+            print('Time since last valid position: ', timeSinceLastValidPosition)
+            print('Last valid position: ', position)
+
             # print('Position is none. No match.')
-            position = old_position
-        elif(math.sqrt((position[0][0][0]-old_position[0][0][0])**2+(position[0][0][1]-old_position[0][0][1])**2) >= 30):
-            position = old_position
+            # The point is too far from the old point.
+
             # print('The point is too far from the old point.')
         # else:
             # print('Position:', position)
@@ -213,7 +215,7 @@ def getPosition(capturador, estimador, currentHeight, result):
 
 def main():
     currentHeight = 0.88
-    steps = 5
+    steps = 1
     estimador = Estimador()
     capturador = Capturador()
     result = estimador.sceneMatching.templateImage
@@ -234,16 +236,20 @@ def main():
     # testing.start()
 
     while(1):
+        global stopCode
         resultRotated = cv2.rotate(result, cv2.cv2.ROTATE_90_COUNTERCLOCKWISE) 
         cv2.imshow('Navigation', resultRotated)
         img = frame_read.frame
         cv2.imshow("Drone video", img)
         if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    keepRecording = False
-    recorder.join()
-
+            print('Stopping everything and landing the drone!!!')
+            stopCode = True
+            navi.join()
+            vision.join()
+            drone.land()
+            keepRecording = False
+            recorder.join()
+    
 if __name__ == '__main__':
     main()
 
